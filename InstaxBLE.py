@@ -38,8 +38,8 @@ class InstaxBLE:
         printEnabled: by default, actual printing is disabled to prevent misprints.
         """
         # BLE
-        self.serviceUUID = '70954782-2d83-473d-9e5f-81e1d02d5273'
-        self.writeCharUUID = '70954783-2d83-473d-9e5f-81e1d02d5273'
+        self.serviceUUID =    '70954782-2d83-473d-9e5f-81e1d02d5273'
+        self.writeCharUUID =  '70954783-2d83-473d-9e5f-81e1d02d5273'
         self.notifyCharUUID = '70954784-2d83-473d-9e5f-81e1d02d5273'
         self.peripheral = None
 
