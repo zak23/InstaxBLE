@@ -25,18 +25,14 @@ from io import BytesIO
 class InstaxBLE:
     def __init__(
         self,
-        device_address=None,
-        device_name=None,
+        printer_address=None,
+        printer_name=None,
         print_enabled=False,
         dummy_printer=False,
         verbose=False,
         quiet=False,
         image_path=None):
-        """
-        Initialize the InstaxBLE class.
-        deviceAddress: if specified, will only connect to a printer with this address.
-        printEnabled: by default, actual printing is disabled to prevent misprints.
-        """
+
         # BLE
         self.serviceUUID =    '70954782-2d83-473d-9e5f-81e1d02d5273'
         self.writeCharUUID =  '70954783-2d83-473d-9e5f-81e1d02d5273'
@@ -48,8 +44,8 @@ class InstaxBLE:
         self.printerSettings = PrinterSettings['mini'] if self.dummyPrinter else None
         self.chunkSize = PrinterSettings['mini']['chunkSize'] if self.dummyPrinter else 0
         self.printEnabled = print_enabled
-        self.deviceName = device_name.upper() if device_name else None
-        self.deviceAddress = device_address.upper() if device_address else None
+        self.printerName = printer_name.upper() if printer_name else None
+        self.printerAddress = printer_address.upper() if printer_address else None
         self.image_path = image_path
         self.verbose = verbose if not self.quiet else False
         self.packetsForPrinting = []
@@ -272,9 +268,9 @@ class InstaxBLE:
                     foundAddress = peripheral.address()
                     # if foundName.startswith('INSTAX'):
                     #     self.log(f"Found: {foundName} [{foundAddress}]")
-                    if (self.deviceName and foundName.startswith(self.deviceName)) or \
-                       (self.deviceAddress and foundAddress == self.deviceAddress) or \
-                       (self.deviceName is None and self.deviceAddress is None and
+                    if (self.printerName and foundName.startswith(self.printerName)) or \
+                       (self.printerAddress and foundAddress == self.printerAddress) or \
+                       (self.printerName is None and self.printerAddress is None and
                        foundName.startswith('INSTAX-') and foundName.endswith('(IOS)')):
                         # if foundAddress.startswith('FA:AB:BC'):  # start of IOS endpooint
                         #     to convert to ANDROID endpoint, replace 'FA:AB:BC' with '88:B4:36')
@@ -558,8 +554,8 @@ def main(args={}):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-a', '--device-address')
-    parser.add_argument('-n', '--device-name')
+    parser.add_argument('-a', '--printer-address')
+    parser.add_argument('-n', '--printer-name')
     parser.add_argument('-p', '--print-enabled', action='store_true')
     parser.add_argument('-d', '--dummy-printer', action='store_true')
     parser.add_argument('-v', '--verbose', action='store_true')
