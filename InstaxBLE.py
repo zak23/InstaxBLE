@@ -159,11 +159,12 @@ class InstaxBLE:
             self.handle_image_packet_queue()
 
         elif event == EventType.PRINT_IMAGE_DOWNLOAD_CANCEL:
-            pass
+            if self.verbose:
+                self.log('received cancel confirmation')
 
         elif event == EventType.PRINT_IMAGE:
-            self.log('received print confirmation')
-            pass
+            if self.verbose:
+                self.log('received print confirmation')
 
         else:
             self.log(f'Uncaught response from printer. Eventype: {event}')
@@ -406,13 +407,14 @@ class InstaxBLE:
             imgDataChunks[index] = pack('>I', index) + chunk  # add chunk number as int (4 bytes)
             self.packetsForPrinting.append(self.create_packet(EventType.PRINT_IMAGE_DOWNLOAD_DATA, imgDataChunks[index]))
 
-        self.packetsForPrinting.append(self.create_packet(EventType.PRINT_IMAGE_DOWNLOAD_END))
-
         if self.printEnabled:
+            self.packetsForPrinting.append(self.create_packet(EventType.PRINT_IMAGE_DOWNLOAD_END))
             self.packetsForPrinting.append(self.create_packet(EventType.PRINT_IMAGE))
             self.packetsForPrinting.append(self.create_packet((0, 2), b'\x02'))
-        elif not self.quiet:
-            self.log("Printing is disabled, sending all packets except the actual print command")
+        else:
+            self.packetsForPrinting.append(self.create_packet(EventType.PRINT_IMAGE_DOWNLOAD_CANCEL))
+            if not self.quiet:
+                self.log("Printing is disabled, sending all packets except the actual print command")
 
         # for packet in self.packetsForPrinting:
         #     self.log(self.prettify_bytearray(packet))
