@@ -59,6 +59,7 @@ class InstaxBLE:
         self.photosLeft = 0
         self.isCharging = False
         self.imageSize = (PrinterSettings['mini']['width'], PrinterSettings['mini']['height']) if self.dummyPrinter else (0, 0)
+        self.maxFileSizeKb = None
         self.waitingForResponse = False
         self.cancelled = False
 
@@ -110,24 +111,34 @@ class InstaxBLE:
                 return
 
             if infoType == InfoType.IMAGE_SUPPORT_INFO:
-                w, h = unpack_from('>HH', packet[8:12])
+                width, height, support_pic_type, support_pic_option, support_jpeg_size = unpack_from('>HHBBI', packet[8:])
                 # self.log(self.prettify_bytearray(packet[8:12]))
                 # self.log(f'image size: {w}x{h}')
-                self.imageSize = (w, h)
-                if (w, h) == (600, 800):
+                self.maxFileSizeKb = support_jpeg_size // 1024
+                self.imageSize = (width, height)
+                if (width, height) == (600, 800):
                     self.printerSettings = PrinterSettings['mini']
-                elif (w, h) == (800, 800):
+                elif (width, height) == (800, 800):
                     self.printerSettings = PrinterSettings['square']
-                elif (w, h) == (1260, 840):
+                elif (width, height) == (1260, 840):
                     self.printerSettings = PrinterSettings['wide']
                 else:
-                    exit(f'Unknown image size from printer: {w}x{h}')
+                    exit(f'Unknown image size from printer: {width}x{height}')
+
+                if self.verbose:
+                    print("Info from printer: ")
+                    print(f"  Width: {width}")
+                    print(f"  Height: {height}")
+                    print(f"  Supported picture types: {support_pic_type}")
+                    print(f"  Supported picture options: {support_pic_option}")
+                    print(f"  Max file size: {self.maxFileSizeKb} KB")
 
                 self.chunkSize = self.printerSettings['chunkSize']
 
             elif infoType == InfoType.BATTERY_INFO:
                 self.batteryState, self.batteryPercentage = unpack_from('>BB', packet[8:10])
                 # self.log(f'battery state: {self.batteryState}, battery percentage: {self.batteryPercentage}')
+
             elif infoType == InfoType.PRINTER_FUNCTION_INFO:
                 dataByte = packet[8]
                 self.photosLeft = dataByte & 15
@@ -373,11 +384,11 @@ class InstaxBLE:
         imgData = imgSrc
         if isinstance(imgSrc, str):  # if it's a path, load the image contents
             image = Image.open(imgSrc)
-            imgData = self.pil_image_to_bytes(image, max_size_kb=105)
+            imgData = self.pil_image_to_bytes(image)
         elif isinstance(imgSrc, BytesIO):
             imgSrc.seek(0)  # Go to the start of the BytesIO object
             image = Image.open(imgSrc)
-            imgData = self.pil_image_to_bytes(image, max_size_kb=105)
+            imgData = self.pil_image_to_bytes(image)
 
         # self.log(f"len of imagedata: {len(imgData)}")
         self.packetsForPrinting = [
@@ -452,7 +463,7 @@ class InstaxBLE:
 
         self.get_printer_status()
 
-    def pil_image_to_bytes(self, img: Image.Image, max_size_kb: int = None) -> bytearray:
+    def pil_image_to_bytes(self, img: Image.Image) -> bytearray:
         """ Convert a PIL image to a bytearray """
         img_buffer = BytesIO()
 
@@ -468,21 +479,21 @@ class InstaxBLE:
             img.save(img_buffer, format='JPEG', quality=quality)
             return img_buffer.tell() / 1024
 
-        if max_size_kb is not None:
+        if self.maxFileSizeKb is not None:
             low_quality, high_quality = 1, 100
-            current_quality = 75
+            current_quality = 100
             closest_quality = current_quality
-            min_target_size_kb = max_size_kb * 0.9
+            min_target_size_kb = self.maxFileSizeKb * 0.9
 
             while low_quality <= high_quality:
                 output_size_kb = save_img_with_quality(current_quality)
                 # self.log(f"current output quality: {current_quality}, current size: {output_size_kb}")
 
-                if output_size_kb <= max_size_kb and output_size_kb >= min_target_size_kb:
+                if output_size_kb <= self.maxFileSizeKb and output_size_kb >= min_target_size_kb:
                     closest_quality = current_quality
                     break
 
-                if output_size_kb > max_size_kb:
+                if output_size_kb > self.maxFileSizeKb:
                     high_quality = current_quality - 1
                 else:
                     low_quality = current_quality + 1
@@ -494,6 +505,7 @@ class InstaxBLE:
             save_img_with_quality(closest_quality)
             self.log(f'Saved img with quality of {closest_quality}')
         else:
+            self.log("No max file size known, saving with default quality")
             img.save(img_buffer, format='JPEG')
 
         return bytearray(img_buffer.getvalue())
