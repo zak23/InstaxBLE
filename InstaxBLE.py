@@ -33,7 +33,7 @@ class InstaxBLE:
         quiet=False,
         image_path=None):
 
-        # BLE
+        # Main printer service and characteristics UUIDs
         self.serviceUUID =    '70954782-2d83-473d-9e5f-81e1d02d5273'
         self.writeCharUUID =  '70954783-2d83-473d-9e5f-81e1d02d5273'
         self.notifyCharUUID = '70954784-2d83-473d-9e5f-81e1d02d5273'
@@ -79,7 +79,6 @@ class InstaxBLE:
     def display_current_status(self):
         """ Display an overview of the current printer state """
         print("\nPrinter details: ")
-        # print(f"Device name:         {self.printerSettings['modelName']}")
         print(f"Model:               {self.printerSettings['modelName']}")
         print(f"Photos left:         {self.photosLeft}/10")
         print(f"Battery level:       {self.batteryPercentage}%")
@@ -127,7 +126,7 @@ class InstaxBLE:
                     print(f"  Height: {height}")
                     print(f"  Supported picture types: {support_pic_type}")
                     print(f"  Supported picture options: {support_pic_option}")
-                    print(f"  Max file size: {self.maxFileSizeKb} KB")
+                    print(f"  Max file size: {self.maxFileSizeKb} Kb", end="\n\n")
 
                 self.chunkSize = self.printerSettings['chunkSize']
 
@@ -230,7 +229,7 @@ class InstaxBLE:
                 self.display_current_status()
 
     def disconnect(self):
-        """ Disconnect from the printer (if connected) """
+        """ Disconnect from the printer """
         if self.dummyPrinter:
             return
         if self.peripheral:
