@@ -309,6 +309,10 @@ class InstaxBLE:
         """ Create a checksum for a given packet. """
         return (255 - (sum(bytearray) & 255)) & 255
 
+    def validate_checksum(self, packet):
+        """ Validate the checksum of a packet. """
+        return (sum(packet) & 255) == 255
+
     def create_packet(self, eventType, payload=b''):
         """ Create a packet to send to the printer. """
         if isinstance(eventType, EventType):  # allows passing in an event or a value directly
@@ -321,9 +325,6 @@ class InstaxBLE:
         packet += pack('B', self.create_checksum(packet))
         return packet
 
-    def validate_checksum(self, packet):
-        """ Validate the checksum of a packet. """
-        return (sum(packet) & 255) == 255
 
     def send_packet(self, packet):
         """ Send a packet to the printer """
