@@ -328,7 +328,7 @@ class InstaxBLE:
 
     def send_packet(self, packet):
         """ Send a packet to the printer """
-        if not self.dummyPrinter and not self.quiet:
+        if not self.dummyPrinter:
             if not self.peripheral:
                 self.log("no peripheral to send packet to")
             elif not self.peripheral.is_connected():
