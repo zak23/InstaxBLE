@@ -40,6 +40,7 @@ class InstaxBLE:
         self.peripheral = None
 
         self.quiet = quiet
+        self.verbose = verbose
         self.dummyPrinter = dummy_printer
         self.printerSettings = PrinterSettings['mini'] if self.dummyPrinter else None
         self.chunkSize = PrinterSettings['mini']['chunkSize'] if self.dummyPrinter else 0
@@ -47,7 +48,6 @@ class InstaxBLE:
         self.printerName = printer_name.upper() if printer_name else None
         self.printerAddress = printer_address.upper() if printer_address else None
         self.image_path = image_path
-        self.verbose = verbose if not self.quiet else False
         self.packetsForPrinting = []
         self.pos = (0, 0, 0, 0)
         self.batteryState = 0
@@ -67,13 +67,19 @@ class InstaxBLE:
                 sys.exit()
 
         if len(adapters) > 1:
-            self.log(f"Found multiple adapters: {', '.join([adapter.identifier() for adapter in adapters])}")
-            self.log(f"Using the first one: {adapters[0].identifier()}")
+            self.logVerbose(f"Found multiple adapters: {', '.join([adapter.identifier() for adapter in adapters])}")
+            self.logVerbose(f"Using the first one: {adapters[0].identifier()}")
         self.adapter = adapters[0]
 
     def log(self, msg):
-        """ Print a debug message"""
-        if self.verbose:
+        """ Print a message, unless in quiet mode """
+        if self.quiet:
+            return
+        print(msg)
+
+    def logVerbose(self, msg):
+        """ Print a verbose message if verbose mode is enabled unless in quiet mode """
+        if self.verbose and not self.quiet:
             print(msg)
 
     def display_current_status(self):
@@ -90,7 +96,7 @@ class InstaxBLE:
 
     def parse_printer_response(self, event, packet):
         """ Parse the response packet and print the result """
-        # self.log(f"event: {event}")
+        self.logVerbose(f"event: {event}")
         self.waitingForResponse = False
 
         if event == EventType.XYZ_AXIS_INFO:
@@ -102,13 +108,13 @@ class InstaxBLE:
             try:
                 infoType = InfoType(packet[7])
             except ValueError:
-                self.log(f'Unknown InfoType: {packet[7]}')
+                self.logVerbose(f'Unknown InfoType: {packet[7]}')
                 return
 
             if infoType == InfoType.IMAGE_SUPPORT_INFO:
                 width, height, support_pic_type, support_pic_option, support_jpeg_size = unpack_from('>HHBBI', packet[8:])
-                # self.log(self.prettify_bytearray(packet[8:12]))
-                # self.log(f'image size: {w}x{h}')
+                # self.logVerbose(self.prettify_bytearray(packet[8:12]))
+                # self.logVerbose(f'image size: {w}x{h}')
                 self.maxFileSizeKb = support_jpeg_size // 1024
                 self.imageSize = (width, height)
                 if (width, height) == (600, 800):
@@ -132,7 +138,7 @@ class InstaxBLE:
 
             elif infoType == InfoType.BATTERY_INFO:
                 self.batteryState, self.batteryPercentage = unpack_from('>BB', packet[8:10])
-                # self.log(f'battery state: {self.batteryState}, battery percentage: {self.batteryPercentage}')
+                # self.logVerbose(f'battery state: {self.batteryState}, battery percentage: {self.batteryPercentage}')
 
             elif infoType == InfoType.PRINTER_FUNCTION_INFO:
                 dataByte = packet[8]
@@ -140,9 +146,9 @@ class InstaxBLE:
                 self.isCharging = (1 << 7) & dataByte >= 1
                 # self.log(f'photos left: {self.photosLeft}')
                 # if self.isCharging:
-                #     self.log('Printer is charging')
+                #     self.logVerbose('Printer is charging')
                 # else:
-                #     self.log('Printer is running on battery')
+                #     self.logVerbose('Printer is running on battery')
 
         elif event == EventType.PRINT_IMAGE_DOWNLOAD_START:
             self.handle_image_packet_queue()
@@ -155,31 +161,32 @@ class InstaxBLE:
 
         elif event == EventType.PRINT_IMAGE_DOWNLOAD_CANCEL:
             if self.verbose:
-                self.log('received cancel confirmation')
+                self.logVerbose('received cancel confirmation')
 
         elif event == EventType.PRINT_IMAGE:
             if self.verbose:
-                self.log('received print confirmation')
+                self.logVerbose('received print confirmation')
 
         else:
-            self.log(f'Uncaught response from printer. Eventype: {event}')
+            self.logVerbose(f'Uncaught response from printer. Eventype: {event}')
 
     def handle_image_packet_queue(self):
         if len(self.packetsForPrinting) > 0 and not self.cancelled:
             if len(self.packetsForPrinting) % 10 == 0:
-                self.log(f"Img packets left to send: {len(self.packetsForPrinting)}")
+                self.logVerbose(f"Img packets left to send: {len(self.packetsForPrinting)}")
             packet = self.packetsForPrinting.pop(0)
             self.send_packet(packet)
 
     def notification_handler(self, packet):
         """ Gets called whenever the printer replies and handles parsing the received data """
-        # self.log('Notification handler:')
-        # self.log(f'\t{self.prettify_bytearray(packet[:40])}')
+        self.logVerbose('\t* Notification handler packet:')
+        self.logVerbose("\tpacket @notification_handler", packet[:40])
+        self.logVerbose(f'\t{self.prettify_bytearray(packet[:40])}')
         if not self.quiet:
             if len(packet) < 8:
                 self.log(f"\tError: response packet size should be >= 8 (was {len(packet)})!")
                 return
-            elif not self.validate_checksum(packet):
+            if not self.validate_checksum(packet):
                 self.log("\tResponse packet checksum was invalid!")
                 return
 
@@ -191,9 +198,9 @@ class InstaxBLE:
 
         try:
             event = EventType((op1, op2))
-            # self.log(f'\tResponse event: {event}')
+            self.logVerbose(f'\tResponse event: {event}')
         except ValueError:
-            self.log(f"Unknown EventType: ({op1}, {op2})")
+            self.logVerbose(f"Unknown EventType: ({op1}, {op2})")
             return
 
         self.parse_printer_response(event, packet)
@@ -214,9 +221,7 @@ class InstaxBLE:
 
             if self.peripheral.is_connected():
                 # check if we're using a version of simplepyble that supports reading mtu
-                self.log(f"Connected")
-
-                # self.log('Attaching notification_handler')
+                self.log("Connected")
                 try:
                     self.peripheral.notify(self.serviceUUID, self.notifyCharUUID, self.notification_handler)
                 except Exception as e:
@@ -230,16 +235,11 @@ class InstaxBLE:
 
     def disconnect(self):
         """ Disconnect from the printer """
-        if self.dummyPrinter:
+        if self.dummyPrinter or not self.peripheral:
             return
-        if self.peripheral:
-            if self.peripheral.is_connected():
-                # if len(self.packetsForPrinting) > 0 and not self.cancelled:
-                #     self.log('sending cancel command')
-                #     self.send_packet(self.create_packet(EventType.PRINT_IMAGE_DOWNLOAD_CANCEL))
-                self.log('Disconnecting...')
-                self.peripheral.disconnect()
-                self.log("Disconnected")
+        if self.peripheral.is_connected():
+            self.log('Disconnecting...')
+            self.peripheral.disconnect()
 
     def cancel_print(self):
         self.packetsForPrinting = []
