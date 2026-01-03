@@ -20,7 +20,10 @@ import simplepyble
 import sys
 from PIL import Image
 from io import BytesIO
+from typing import List, Union
 
+
+        self.accelerometer = (0, 0, 0, 0)  # used for accelerometer data
 
 class InstaxBLE:
     def __init__(
@@ -31,19 +34,23 @@ class InstaxBLE:
         dummy_printer=False,
         verbose=False,
         quiet=False,
-        image_path=None):
+        image_path=None,
+    ):
+
 
         # Main printer service and characteristics UUIDs
-        self.serviceUUID =    '70954782-2d83-473d-9e5f-81e1d02d5273'
-        self.writeCharUUID =  '70954783-2d83-473d-9e5f-81e1d02d5273'
-        self.notifyCharUUID = '70954784-2d83-473d-9e5f-81e1d02d5273'
+        self.serviceUUID = "70954782-2d83-473d-9e5f-81e1d02d5273"
+        self.writeCharUUID = "70954783-2d83-473d-9e5f-81e1d02d5273"
+        self.notifyCharUUID = "70954784-2d83-473d-9e5f-81e1d02d5273"
+
+        # Generic Bluetooth Dvice Information Service
+        self.deviceInformationServiceUUID = "0000180a-0000-1000-8000-00805f9b34fb"
+        self.modelNameStringUUID = "00002a24-0000-1000-8000-00805f9b34fb"
+
         self.peripheral = None
 
-        self.quiet = quiet
-        self.verbose = verbose
-        self.dummyPrinter = dummy_printer
-        self.printerSettings = PrinterSettings['mini'] if self.dummyPrinter else None
-        self.chunkSize = PrinterSettings['mini']['chunkSize'] if self.dummyPrinter else 0
+        self.quiet = quiet  # suppress non-error output
+        self.verbose = verbose  # enable verbose/debug output
         self.printEnabled = print_enabled
         self.printerName = printer_name.upper() if printer_name else None
         self.printerAddress = printer_address.upper() if printer_address else None
@@ -71,14 +78,14 @@ class InstaxBLE:
             self.logVerbose(f"Using the first one: {adapters[0].identifier()}")
         self.adapter = adapters[0]
 
-    def log(self, msg):
-        """ Print a message, unless in quiet mode """
+    def log(self, msg: str) -> None:
+        """Print a message, unless in quiet mode"""
         if self.quiet:
             return
         print(msg)
 
-    def logVerbose(self, msg):
-        """ Print a verbose message if verbose mode is enabled unless in quiet mode """
+    def logVerbose(self, msg: str) -> None:
+        """Print a verbose message if verbose mode is enabled unless in quiet mode"""
         if self.verbose and not self.quiet:
             print(msg)
 
@@ -100,15 +107,15 @@ class InstaxBLE:
         self.waitingForResponse = False
 
         if event == EventType.XYZ_AXIS_INFO:
-            x, y, z, o = unpack_from('<hhhB', packet[6:-1])
-            self.pos = (x, y, z, o)
+            x, y, z, o = unpack_from("<hhhB", packet[6:-1])
+            self.accelerometer = (x, y, z, o)
         elif event == EventType.LED_PATTERN_SETTINGS:
             pass
         elif event == EventType.SUPPORT_FUNCTION_INFO:
             try:
                 infoType = InfoType(packet[7])
             except ValueError:
-                self.logVerbose(f'Unknown InfoType: {packet[7]}')
+                self.logVerbose(f"Unknown InfoType: {packet[7]}")
                 return
 
             if infoType == InfoType.IMAGE_SUPPORT_INFO:
@@ -177,30 +184,16 @@ class InstaxBLE:
             packet = self.packetsForPrinting.pop(0)
             self.send_packet(packet)
 
-    def notification_handler(self, packet):
-        """ Gets called whenever the printer replies and handles parsing the received data """
-        self.logVerbose('\t* Notification handler packet:')
-        self.logVerbose("\tpacket @notification_handler", packet[:40])
-        self.logVerbose(f'\t{self.prettify_bytearray(packet[:40])}')
-        if not self.quiet:
-            if len(packet) < 8:
-                self.log(f"\tError: response packet size should be >= 8 (was {len(packet)})!")
-                return
-            if not self.validate_checksum(packet):
-                self.log("\tResponse packet checksum was invalid!")
-                return
-
-        header, length, op1, op2 = unpack_from('>HHBB', packet)
-        # self.log('\theader: ', header, '\t', self.prettify_bytearray(packet[0:2]))
-        # self.log('\tlength: ', length, '\t', self.prettify_bytearray(packet[2:4]))
-        # self.log('\top1: ', op1, '\t\t', self.prettify_bytearray(packet[4:5]))
-        # self.log('\top2: ', op2, '\t\t', self.prettify_bytearray(packet[5:6]))
-
-        try:
-            event = EventType((op1, op2))
-            self.logVerbose(f'\tResponse event: {event}')
-        except ValueError:
-            self.logVerbose(f"Unknown EventType: ({op1}, {op2})")
+    def notification_handler(self, packet: bytes) -> None:
+        """Gets called whenever the printer replies and handles parsing the received data"""
+        self.logVerbose(f"@notification_handler incoming packet: {packet[:40]}")
+        self.logVerbose(f"\t{self.prettify_bytearray(packet[:40])}")
+        if len(packet) < 8:
+            self.log(f"Error: response packet size should be >= 8 (was {len(packet)})!")
+            return
+        if not self.validate_checksum(packet):
+            self.log("Response packet checksum was invalid!")
+            return
             return
 
         self.parse_printer_response(event, packet)
@@ -233,30 +226,29 @@ class InstaxBLE:
                 sleep(1)
                 self.display_current_status()
 
-    def disconnect(self):
-        """ Disconnect from the printer """
-        if self.dummyPrinter or not self.peripheral:
+    def disconnect(self) -> None:
+        """Disconnect from the printer"""
             return
         if self.peripheral.is_connected():
             self.log('Disconnecting...')
             self.peripheral.disconnect()
 
-    def cancel_print(self):
+    def cancel_print(self) -> None:
         self.packetsForPrinting = []
-        self.waitingForResponse = False
+        self.waiting_for_response = False
         self.send_packet(self.create_packet(EventType.PRINT_IMAGE_DOWNLOAD_CANCEL))
 
-    def enable_printing(self):
-        """ Enable printing. """
+    def enable_printing(self) -> None:
+        """Enable printing: send all image data and start the print"""
         self.printEnabled = True
 
-    def disable_printing(self):
-        """ Disable printing. """
+    def disable_printing(self) -> None:
+        """Disable printing: send all image data but do NOT start the actual print"""
         self.printEnabled = False
 
-    def find_device(self, timeout=0):
-        """" Scan for our device and return it when found """
-        self.log('Searching for instax printer...')
+    def scan_for_device(self, timeout: int = 0) -> None:
+        """Scan for our device and return it when found"""
+        self.log("Searching for Instax printer...")
         secondsTried = 0
         try:
             while True:
@@ -285,7 +277,9 @@ class InstaxBLE:
             self.disconnect()
             sys.exit()
 
-    def send_led_pattern(self, pattern, speed=5, repeat=255, when=0):
+    def send_led_pattern(
+        self, pattern: List[List[int]], speed: int = 5, repeat: int = 255, when: int = 0
+    ) -> None:
         """
         Send a LED pattern to the Instax printer.
         - pattern: array of BGR (not RGB!) values to use in animation, e.g. [[255, 0, 0], [0, 255, 0], [0, 0, 255]]
@@ -294,28 +288,30 @@ class InstaxBLE:
         - when: 0 = normal, 1 = on print, 2 = on print completion, 3 = pattern switch
         """
 
-        payload = pack('BBBB', when, len(pattern), speed, repeat)
+        payload = pack("BBBB", when, len(pattern), speed, repeat)
         for color in pattern:
-            payload += pack('BBB', color[0], color[1], color[2])
+            payload += pack("BBB", color[0], color[1], color[2])
 
         packet = self.create_packet(EventType.LED_PATTERN_SETTINGS, payload)
         self.send_packet(packet)
 
-    def prettify_bytearray(self, value):
-        """ Helper funtion to convert a bytearray to a string of hex values. """
-        return ' '.join([f'{x:02x}' for x in value])
+    def prettify_bytearray(self, value: bytearray) -> str:
+        """Helper funtion to convert a bytearray to a string of hex values."""
+        return " ".join([f"{x:02x}" for x in value])
 
-    def create_checksum(self, bytearray):
-        """ Create a checksum for a given packet. """
+    def create_checksum(self, bytearray: bytearray) -> int:
+        """Create a checksum for a given packet."""
         return (255 - (sum(bytearray) & 255)) & 255
 
-    def validate_checksum(self, packet):
-        """ Validate the checksum of a packet. """
+    def validate_checksum(self, packet: bytes) -> bool:
+        """Validate the checksum of a packet."""
         return (sum(packet) & 255) == 255
 
-    def create_packet(self, eventType, payload=b''):
-        """ Create a packet to send to the printer. """
-        if isinstance(eventType, EventType):  # allows passing in an event or a value directly
+    def create_packet(self, eventType, payload: bytes = b"") -> bytes:
+        """Create a packet to send to the printer."""
+        if isinstance(
+            eventType, EventType
+        ):  # allows passing in an event or a value directly
             eventType = eventType.value
 
         header = b'\x41\x62'  # 'Ab' means client to printer, 'aB' means printer to client
@@ -363,7 +359,11 @@ class InstaxBLE:
             self.cancel_print()
             # sleep(1)
             self.disconnect()
-            sys.exit('Cancelled')
+    # def reject_film_cover(self) -> None:
+    #     """ Reject the film cover if it's still in the printer """
+    #     self.log("Rejecting film cover...")
+    #     packet = self.create_packet(EventType.REJECT_FILM_COVER)
+    #     self.send_packet(packet)
 
     def print_image(self, imgSrc):
         """
@@ -371,8 +371,8 @@ class InstaxBLE:
         the bytearray to print directly
         """
         self.log(f'printing image "{imgSrc}"')
-        if self.photosLeft == 0 and not self.dummyPrinter:
-            self.log("Can't print: no photos left")
+        if self.printerInfo.photosLeft == 0:
+            self.log("No photos left in cartridge; can't print!")
             return
 
         imgData = imgSrc
@@ -436,8 +436,8 @@ class InstaxBLE:
         for i, (service_uuid, characteristic) in enumerate(service_characteristic_pair):
             self.log(f"{i}: {service_uuid} {characteristic}")
 
-    def get_printer_orientation(self):
-        """ Get the current XYZ orientation of the printer """
+    def get_printer_orientation(self) -> None:
+        """Get the current XYZ orientation of the printer"""
         packet = self.create_packet(EventType.XYZ_AXIS_INFO)
         self.send_packet(packet)
 
@@ -459,19 +459,19 @@ class InstaxBLE:
         self.get_printer_status()
 
     def pil_image_to_bytes(self, img: Image.Image) -> bytearray:
-        """ Convert a PIL image to a bytearray """
+        """Convert a PIL image to a bytearray"""
         img_buffer = BytesIO()
 
         # Convert the image to RGB mode if it's in RGBA mode
-        if img.mode == 'RGBA':
-            img = img.convert('RGB')
+        if img.mode == "RGBA":
+            img = img.convert("RGB")
 
         # Resize the image to <imageSize> pixels
         img = img.resize(self.imageSize, Image.Resampling.LANCZOS)
 
         def save_img_with_quality(quality):
             img_buffer.seek(0)
-            img.save(img_buffer, format='JPEG', quality=quality)
+            img.save(img_buffer, format="JPEG", quality=quality)
             return img_buffer.tell() / 1024
 
         if self.maxFileSizeKb is not None:
@@ -530,7 +530,8 @@ def main(args={}):
         # you can also read the current accelerometer values if you want
         # while True:
         #     instax.get_printer_orientation()
-        #     sleep(.5)
+        #     print(instax.accelerometer)
+        #     sleep(.1)
 
         # send your image (.jpg) to the printer by
         # passing the image_path as an argument when calling
