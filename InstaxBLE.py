@@ -465,6 +465,7 @@ class InstaxBLE:
 
         def save_img_with_quality(quality):
             img_buffer.seek(0)
+            img_buffer.truncate(0)
             img.save(img_buffer, format='JPEG', quality=quality)
             return img_buffer.tell() / 1024
 
